@@ -82,7 +82,7 @@ llama-cli \
 - `--reasoning-budget 1024` — short reasoning (0 = disabled, -1 = unlimited)
 - `-cnv` — interactive conversation mode
 
-### Start llama-server (HTTP API, creative writing)
+### Start llama-server (HTTP API)
 
 ```bash
 llama-server \
@@ -91,7 +91,6 @@ llama-server \
     -ngl 999 \
     --host 0.0.0.0 \
     --port 8080 \
-    --reasoning-budget 0 \
     --temp 0.85 \
     --top-p 0.95 \
     --min-p 0.05 \
@@ -99,7 +98,40 @@ llama-server \
     --repeat-last-n 256
 ```
 
+> **Think / No-think:** Use `/think` or `/nothink` at the start of your prompt to toggle reasoning mode on the fly — no server restart needed.
+
 Then access `http://<pod-ip>:8080` for the web interface.
+
+### Run in background (survives SSH disconnect)
+
+Launch with `nohup` and redirect output to a log file on the persistent volume:
+
+```bash
+nohup llama-server \
+    -m /workspace/models/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
+    -c 131072 -ngl 999 --host 0.0.0.0 --port 8080 \
+    --temp 0.85 --top-p 0.95 --min-p 0.05 \
+    --repeat-penalty 1.1 --repeat-last-n 256 \
+    > /workspace/llama-server.log 2>&1 &
+
+echo "PID: $!"
+```
+
+**View the log** (from any session, even after reconnecting):
+
+```bash
+tail -f /workspace/llama-server.log
+```
+
+**Stop the server:**
+
+```bash
+# Find and kill by name
+pkill -f llama-server
+
+# Or by PID if you saved it
+kill <PID>
+```
 
 ## 🔌 SSH Access
 
