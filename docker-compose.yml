@@ -1,0 +1,8 @@
+services:
+  llama:
+    build: .
+    volumes:
+      - ./workspace:/workspace
+    ports:
+      - "8080:8080"   # llama-server default port
+    command: ["bash"]  # default command, can be overridden
