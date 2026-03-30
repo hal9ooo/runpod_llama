@@ -36,21 +36,59 @@ ghcr.io/hal9ooo/runpod-llama:latest
 - Mount persistent volume on **`/workspace`**
 - Recommended size: **64GB+** (models are large!)
 
-### 3. Start the Pod
+### 3. Configure Networking
+
+- **Expose TCP Ports:** `8080` — connessione diretta senza proxy Cloudflare (no timeout 524)
+- **Expose HTTP Ports:** `8080` — accesso web UI tramite proxy (soggetto a timeout ~100s)
+
+La porta TCP diretta e' consigliata per Harmony Writer: elimina i timeout del proxy Cloudflare sulle request lunghe. L'endpoint TCP sara' visibile nella dashboard sotto "Connect" -> "TCP Port Mappings" (es: `<pod-id>.runpod.io:12345`).
+
+### 4. Start the Pod
 
 - Select GPU (recommended: A40, A100, H100)
 - Start container
 
-## 📥 Download a Model
+## 📥 Quick Start: Download & Run
 
-Once the container is running, download your desired model:
+### One-Liner: IQ4_XS (48+ GB VRAM)
 
 ```bash
-# Download model weights + multimodal projector
+# 1. Download model
 hf download HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \
     Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
     mmproj-Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-f16.gguf \
-    --local-dir /workspace/models
+    --local-dir ~/.cache/llama.cpp && \
+# 2. Start llama-server in background
+nohup llama-server \
+    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
+    -c 65536 -ngl 999 --host 0.0.0.0 --port 8080 \
+    --flash-attn on --parallel 2 \
+    --reasoning-budget 2048 \
+    --temp 0.85 --top-p 0.95 --min-p 0.05 \
+    --repeat-penalty 1.1 --repeat-last-n 256 \
+    > ~/llama-server.log 2>&1 & \
+# 3. View log
+tail -f ~/llama-server.log
+```
+
+### One-Liner: Q4_K_P (40+ GB VRAM)
+
+```bash
+# 1. Download model
+hf download HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \
+    Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf \
+    --local-dir ~/.cache/llama.cpp && \
+# 2. Start llama-server in background
+nohup llama-server \
+    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf \
+    -c 65536 -ngl 999 --host 0.0.0.0 --port 8080 \
+    --flash-attn on --parallel 2 \
+    --reasoning-budget 2048 \
+    --temp 0.85 --top-p 0.95 --min-p 0.05 \
+    --repeat-penalty 1.1 --repeat-last-n 256 \
+    > ~/llama-server.log 2>&1 & \Q
+# 3. View log
+tail -f ~/llama-server.log
 ```
 
 ### Recommended Models (GGUF format)
@@ -68,8 +106,8 @@ hf download HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \
 
 ```bash
 llama-cli \
-    -m /workspace/models/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
-    -c 131072 \
+    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
+    -c 65536 \
     -ngl 999 \
     --reasoning-budget 1024 \
     --temp 0.6 \
@@ -77,7 +115,7 @@ llama-cli \
     -cnv
 ```
 
-- `-c 131072` — 128k context window
+- `-c 65536` — 64k context window (sufficient for all pipeline phases)
 - `-ngl 999` — offload all layers to GPU
 - `--reasoning-budget 1024` — short reasoning (0 = disabled, -1 = unlimited)
 - `-cnv` — interactive conversation mode
@@ -86,11 +124,14 @@ llama-cli \
 
 ```bash
 llama-server \
-    -m /workspace/models/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
-    -c 131072 \
+    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
+    -c 65536 \
     -ngl 999 \
     --host 0.0.0.0 \
     --port 8080 \
+    --flash-attn on \
+    --parallel 2 \
+    --reasoning-budget 2048 \
     --temp 0.85 \
     --top-p 0.95 \
     --min-p 0.05 \
@@ -98,21 +139,29 @@ llama-server \
     --repeat-last-n 256
 ```
 
-> **Think / No-think:** Use `/think` or `/nothink` at the start of your prompt to toggle reasoning mode on the fly — no server restart needed.
+- `--flash-attn` — riduce uso VRAM per il KV cache e velocizza
+- `--parallel 2` — 2 slot concorrenti per generazione capitoli in parallelo
+- `--reasoning-budget 2048` — **CRITICO**: limita il thinking mode a 2048 token per default.
+  Il client Python sovrascrive per-request: `reasoning_budget=0` per capitoli (no thinking),
+  `reasoning_budget=2048` per worldbuilding/synopsis/outline (thinking breve).
+  Senza questo flag, il default è `-1` (illimitato) → causa loop di generazione nei capitoli.
+- Thinking controllato per-request tramite `reasoning_budget` nell'extra_body della API call.
 
 Then access `http://<pod-ip>:8080` for the web interface.
 
 ### Run in background (survives SSH disconnect)
 
-Launch with `nohup` and redirect output to a log file on the persistent volume:
+Launch with `nohup` and redirect output to a log file:
 
 ```bash
 nohup llama-server \
-    -m /workspace/models/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
-    -c 131072 -ngl 999 --host 0.0.0.0 --port 8080 \
+    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-IQ4_XS.gguf \
+    -c 65536 -ngl 999 --host 0.0.0.0 --port 8080 \
+    --flash-attn on --parallel 2 \
+    --reasoning-budget 2048 \
     --temp 0.85 --top-p 0.95 --min-p 0.05 \
     --repeat-penalty 1.1 --repeat-last-n 256 \
-    > /workspace/llama-server.log 2>&1 &
+    > ~/llama-server.log 2>&1 &
 
 echo "PID: $!"
 ```
@@ -120,7 +169,7 @@ echo "PID: $!"
 **View the log** (from any session, even after reconnecting):
 
 ```bash
-tail -f /workspace/llama-server.log
+tail -f ~/llama-server.log
 ```
 
 **Stop the server:**
@@ -133,38 +182,72 @@ pkill -f llama-server
 kill <PID>
 ```
 
-## 🔌 SSH Access
+## 🔌 SSH Access & Direct TCP
 
-The container includes a preconfigured SSH server:
+### SSH Connection (RunPod SSH Gateway)
 
 ```bash
-ssh root@<pod-ip>
+ssh c63lzpqedqmzip-644110db@ssh.runpod.io -i ~/.ssh/id_ed25519
 ```
 
-Password is the one set in the RunPod panel.
+**Nota:** Usa l'autenticazione tramite chiave pubblica SSH. Assicurati che:
+1. La tua chiave pubblica (`~/.ssh/id_ed25519.pub`) sia aggiunta al tuo account RunPod
+2. I permessi della chiave privata siano corretti: `chmod 600 ~/.ssh/id_ed25519`
+
+### Direct TCP Connection (consigliato)
+
+RunPod espone le porte TCP direttamente. Nella dashboard "Connect" → "Direct TCP ports":
+
+```
+Llama tcp  69.30.85.16:22104:8080
+```
+
+Significa:
+- IP pubblico: `69.30.85.16`
+- Porta esterna: `22104`
+- Porta interna container: `8080`
+
+**Accedi direttamente via HTTP:**
+
+```bash
+curl http://69.30.85.16:22104/health
+```
+
+Oppure apri nel browser: `http://69.30.85.16:22104`
+
+**Nota:** La connessione TCP diretta bypassa il proxy Cloudflare, eliminando i timeout sulle request lunghe (consigliato per Harmony Writer).
+
+### SSH Tunnel (alternativa se TCP diretto non disponibile)
+
+```bash
+ssh c63lzpqedqmzip-644110db@ssh.runpod.io -i ~/.ssh/id_ed25519 -L 8080:localhost:8080
+```
+
+Poi accedi a `http://localhost:8080` nel browser.
+
+**Nota:** Il tunnel SSH tramite gateway RunPod potrebbe avere limitazioni sul port forwarding.
 
 ## 📁 Directory Structure
 
 ```
-/workspace/
-├── models/          # Downloaded models (persistent)
-└── ...              # Your other files
+~/
+├── .cache/llama.cpp/  # Downloaded models (persistent)
+└── llama-server.log   # Server log file
 ```
 
 ## 🔗 Cache Symlinks
 
 The container includes automatic symlinks for cache:
 
-- `/root/.cache/llama.cpp` → `/workspace/models`
-- `/root/.cache/models` → `/workspace/models`
+- `~/.cache/llama.cpp` → default cache directory
 
-Models downloaded with `-hf` automatically go to the persistent volume.
+Models downloaded with `hf download` go to `~/.cache/llama.cpp` by default.
 
 ## 🧰 Useful Commands
 
 ```bash
 # List downloaded models
-ls -lh /workspace/models/
+ls -lh ~/.cache/llama.cpp/
 
 # Disk space
 df -h

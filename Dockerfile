@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install huggingface-cli for downloading models
 RUN pip3 install --no-cache-dir huggingface_hub
 ENV PATH="$PATH:/root/.local/bin"
-ENV HF_HOME="/workspace/huggingface"
+ENV HF_HOME="/root/.cache/huggingface"
 
 # Configure SSH server
 RUN mkdir -p /run/sshd && \
@@ -59,14 +59,8 @@ RUN mkdir -p /opt/llama.cpp && \
 ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
-# Create workspace and cache symlink
-RUN mkdir -p /workspace/models && \
-    mkdir -p /root/.cache && \
-    ln -sfn /workspace/models /root/.cache/models && \
-    ln -sfn /workspace/models /root/.cache/llama.cpp
+# Set up entrypoint script to start SSH, download model, and run llama-server
+RUN printf '#!/bin/bash\nset -e\n\n# Start SSH daemon in background\n/usr/sbin/sshd\n\n# Create cache directory\nmkdir -p ~/.cache/llama.cpp\n\n# Download model\necho "Downloading model..."\nhf download HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \\\n    Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf \\\n    --local-dir ~/.cache/llama.cpp\n\n# Start llama-server in background\necho "Starting llama-server..."\nnohup llama-server \\\n    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf \\\n    -c 65536 -ngl 999 --host 0.0.0.0 --port 8080 \\\n    --flash-attn on --parallel 2 \\\n    --reasoning-budget 2048 \\\n    --temp 0.85 --top-p 0.95 --min-p 0.05 \\\n    --repeat-penalty 1.1 --repeat-last-n 256 \\\n    > ~/llama-server.log 2>&1 &\n\n# Tail the log\necho "Tailing llama-server log..."\nexec tail -f ~/llama-server.log\n' > /entrypoint.sh && chmod +x /entrypoint.sh
 
-# Set up entrypoint script to start SSH and keep container running
-RUN printf '#!/bin/bash\nset -e\n\n# Start SSH daemon in background\n/usr/sbin/sshd\n\n# Keep container running with tail -f\nexec tail -f /dev/null\n' > /entrypoint.sh && chmod +x /entrypoint.sh
-
-WORKDIR /workspace
+WORKDIR /root
 ENTRYPOINT ["/entrypoint.sh"]
