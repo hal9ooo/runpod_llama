@@ -59,8 +59,21 @@ RUN mkdir -p /opt/llama.cpp && \
 ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
-# Set up entrypoint script to start SSH, download model, and run llama-server
-RUN printf '#!/bin/bash\nset -e\n\n# Start SSH daemon in background\n/usr/sbin/sshd\n\n# Create cache directory\nmkdir -p ~/.cache/llama.cpp\n\n# Download model\necho "Downloading model..."\nhf download HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \\\n    Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q5_K_M.gguf \\\n    --local-dir ~/.cache/llama.cpp\n\n# Start llama-server in background\necho "Starting llama-server..."\nnohup llama-server \\\n    -m ~/.cache/llama.cpp/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q5_K_M.gguf \\\n    -c 65536 -ngl 999 --host 0.0.0.0 --port 8080 \\\n    --flash-attn on --parallel 2 \\\n    --reasoning-budget 2048 \\\n    --temp 0.85 --top-p 0.95 --min-p 0.05 \\\n    --repeat-penalty 1.1 --repeat-last-n 256 \\\n    > ~/llama-server.log 2>&1 &\n\n# Tail the log\necho "Tailing llama-server log..."\nexec tail -f ~/llama-server.log\n' > /entrypoint.sh && chmod +x /entrypoint.sh
+# Default environment variables for model and llama-server configuration
+ENV MODEL_REPO=HauhauCS/Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive \
+    MODEL_FILE=Qwen3.5-122B-A10B-Uncensored-HauhauCS-Aggressive-Q5_K_M.gguf \
+    LLAMA_CONTEXT=65536 \
+    LLAMA_PARALLEL=2 \
+    LLAMA_TEMP=0.85 \
+    LLAMA_TOP_P=0.95 \
+    LLAMA_MIN_P=0.05 \
+    LLAMA_REPEAT_PENALTY=1.1 \
+    LLAMA_REPEAT_LAST_N=256 \
+    LLAMA_REASONING_BUDGET=2048 \
+    LLAMA_HOST=0.0.0.0 \
+    LLAMA_PORT=8080
+
+COPY entrypoint.sh /entrypoint.sh
 
 WORKDIR /root
 ENTRYPOINT ["/entrypoint.sh"]

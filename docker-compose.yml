@@ -1,8 +1,31 @@
 services:
   llama:
     build: .
+    env_file:
+      - .env
+    environment:
+      - MODEL_REPO=${MODEL_REPO}
+      - MODEL_FILE=${MODEL_FILE}
+      - LLAMA_CONTEXT=${LLAMA_CONTEXT:-65536}
+      - LLAMA_PARALLEL=${LLAMA_PARALLEL:-2}
+      - LLAMA_TEMP=${LLAMA_TEMP:-0.85}
+      - LLAMA_TOP_P=${LLAMA_TOP_P:-0.95}
+      - LLAMA_MIN_P=${LLAMA_MIN_P:-0.05}
+      - LLAMA_REPEAT_PENALTY=${LLAMA_REPEAT_PENALTY:-1.1}
+      - LLAMA_REPEAT_LAST_N=${LLAMA_REPEAT_LAST_N:-256}
+      - LLAMA_REASONING_BUDGET=${LLAMA_REASONING_BUDGET:-2048}
+      - LLAMA_HOST=${LLAMA_HOST:-0.0.0.0}
+      - LLAMA_PORT=${LLAMA_PORT:-8080}
+      - HF_TOKEN=${HF_TOKEN:-}
     volumes:
       - ./workspace:/workspace
     ports:
-      - "8080:8080"   # llama-server default port
-    command: ["bash"]  # default command, can be overridden
+      - "${HOST_PORT:-8080}:${LLAMA_PORT:-8080}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
